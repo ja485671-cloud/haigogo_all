@@ -38,6 +38,54 @@
     .intro { margin-bottom: 28px; }
     h1 { margin: 0 0 10px; font-size: clamp(1.8rem, 4vw, 2.7rem); letter-spacing: -.03em; }
     .intro p { margin: 0; color: var(--muted); line-height: 1.8; }
+    .balance-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px 18px;
+      align-items: center;
+      margin: 0 0 30px;
+      padding: 18px 20px;
+      background: rgba(255,253,248,.96);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 12px 30px rgba(57,39,17,.07);
+    }
+    .balance-card.loading { border-color: #d8c8a7; }
+    .balance-card.ok { border-color: rgba(55,136,91,.35); background: #fbfff9; }
+    .balance-card.warning {
+      border-color: #c83b3b;
+      background: #fff8f6;
+      box-shadow: 0 0 0 1px rgba(200,59,59,.12), 0 16px 34px rgba(130,37,23,.12);
+    }
+    .balance-card.error { border-color: #d3a83d; background: #fffaf0; }
+    .balance-label {
+      margin-bottom: 6px;
+      color: var(--gold-dark);
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .16em;
+    }
+    .balance-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+    .balance-amount { color: var(--ink); font-size: clamp(1.55rem, 4vw, 2.15rem); font-weight: 900; letter-spacing: -.02em; }
+    .warning .balance-amount { color: #b72e2e; }
+    .balance-unit { color: var(--muted); font-size: .88rem; }
+    .balance-status {
+      justify-self: end;
+      padding: 6px 13px;
+      color: var(--muted);
+      background: #f3ead7;
+      border: 1px solid #e4d6b9;
+      border-radius: 999px;
+      font-size: .78rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .ok .balance-status { color: #287348; background: #edf8ef; border-color: #bfdfc7; }
+    .warning .balance-status { color: #b72e2e; background: #ffe9e6; border-color: #efb3ac; }
+    .error .balance-status { color: #946717; background: #fff0c7; border-color: #e7c976; }
+    .balance-message { grid-column: 1 / -1; color: var(--muted); font-size: .88rem; line-height: 1.65; }
+    .warning .balance-message { color: #8e3029; font-weight: 700; }
+    .balance-meta { grid-column: 1 / -1; color: #998d7f; font-size: .75rem; }
     .section-title { margin: 34px 0 14px; color: var(--gold-dark); font-size: .78rem; font-weight: 800; letter-spacing: .16em; }
     .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
     .card {
@@ -77,6 +125,8 @@
     @media (max-width: 760px) {
       .header-inner { align-items: flex-start; flex-direction: column; }
       main { padding-top: 36px; }
+      .balance-card { grid-template-columns: 1fr; }
+      .balance-status { justify-self: start; }
       .grid { grid-template-columns: 1fr; }
       .card.primary { grid-column: auto; }
     }
@@ -93,6 +143,19 @@
     <section class="intro">
       <h1>今天要處理什麼？</h1>
       <p>購物網站、商品管理與帳號查詢都集中在這裡。工具會在新分頁開啟，入口頁會保留。</p>
+    </section>
+
+    <section class="balance-card loading" id="balanceCard" aria-live="polite">
+      <div>
+        <div class="balance-label">韓幣餘額</div>
+        <div class="balance-main">
+          <span class="balance-amount" id="balanceAmount">讀取中...</span>
+          <span class="balance-unit">韓幣</span>
+        </div>
+      </div>
+      <div class="balance-status" id="balanceStatus">同步中</div>
+      <div class="balance-message" id="balanceMessage">正在讀取目前月份餘額。</div>
+      <div class="balance-meta" id="balanceMeta"></div>
     </section>
 
     <div class="section-title">購物網站</div>
@@ -139,5 +202,86 @@
 
     <footer>此頁只集中既有工具連結，不會在入口頁保存帳號、密碼或訂單資料。請不要從購物網站首頁公開連結此管理頁。</footer>
   </main>
+  <script>
+    const BALANCE_API_URL = 'https://script.google.com/macros/s/AKfycbz8ZzXa6JDNreLToqEoaoQj0ISPoYSuM4kdReznk9rjYDacz0hisuH8pieewD4eh_zSrw/exec';
+
+    function formatMoney(value) {
+      return Number(value || 0).toLocaleString('en-US');
+    }
+
+    function applyBalance(data) {
+      if (!data || !data.ok) {
+        throw new Error(data && data.message ? data.message : '餘額讀取失敗');
+      }
+
+      const card = document.getElementById('balanceCard');
+      const amount = document.getElementById('balanceAmount');
+      const status = document.getElementById('balanceStatus');
+      const message = document.getElementById('balanceMessage');
+      const meta = document.getElementById('balanceMeta');
+
+      card.className = 'balance-card ' + (data.needsExchange ? 'warning' : 'ok');
+      amount.textContent = data.displayBalance || formatMoney(data.balance);
+      status.textContent = data.needsExchange ? '需要換匯' : '餘額正常';
+      message.textContent = data.message || (data.needsExchange ? '目前韓幣餘額已低於門檻，請安排換匯。' : '目前韓幣餘額正常。');
+      meta.textContent = [data.month, data.sheetName, data.lastSyncAt ? '同步 ' + data.lastSyncAt : ''].filter(Boolean).join(' · ');
+    }
+
+    function showBalanceError(error) {
+      const card = document.getElementById('balanceCard');
+      document.getElementById('balanceAmount').textContent = '讀取失敗';
+      document.getElementById('balanceStatus').textContent = '請稍後再試';
+      document.getElementById('balanceMessage').textContent = '目前無法讀取韓幣餘額，其他入口仍可正常使用。';
+      document.getElementById('balanceMeta').textContent = error && error.message ? error.message : '';
+      card.className = 'balance-card error';
+    }
+
+    function loadBalanceByJsonp() {
+      return new Promise((resolve, reject) => {
+        const callbackName = 'handleBalance_' + Date.now();
+        const script = document.createElement('script');
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('餘額 API 讀取逾時'));
+        }, 10000);
+
+        function cleanup() {
+          clearTimeout(timer);
+          script.remove();
+          delete window[callbackName];
+        }
+
+        window[callbackName] = data => {
+          cleanup();
+          resolve(data);
+        };
+
+        script.onerror = () => {
+          cleanup();
+          reject(new Error('餘額 API 連線失敗'));
+        };
+        script.src = BALANCE_API_URL + '?callback=' + encodeURIComponent(callbackName);
+        document.body.appendChild(script);
+      });
+    }
+
+    async function loadBalance() {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 9000);
+        const response = await fetch(BALANCE_API_URL, { cache: 'no-store', signal: controller.signal });
+        clearTimeout(timer);
+        applyBalance(await response.json());
+      } catch (error) {
+        try {
+          applyBalance(await loadBalanceByJsonp());
+        } catch (fallbackError) {
+          showBalanceError(error && error.name === 'AbortError' ? new Error('餘額 API 讀取逾時') : fallbackError);
+        }
+      }
+    }
+
+    loadBalance();
+  </script>
 </body>
 </html>
